@@ -326,8 +326,16 @@ class Connection implements ConnectionInterface
                               ->prepare($query));
 
             $this->bindValues($statement, $this->prepareBindings($bindings));
-
-            $statement->execute();
+            try{
+                $statement->execute();
+            }catch (\PDOException $exception){
+                // reconnect
+                if ( $statement->errorCode() == 2006){
+                    $this->reconnect();
+                    return $this->select($query , $bindings , $useReadPdo);
+                }
+                throw new $exception;
+            }
 
             return $statement->fetchAll();
         });
@@ -361,7 +369,16 @@ class Connection implements ConnectionInterface
             // Next, we'll execute the query against the database and return the statement
             // so we can return the cursor. The cursor will use a PHP generator to give
             // back one row at a time without using a bunch of memory to render them.
-            $statement->execute();
+            try{
+                $statement->execute();
+            }catch (\PDOException $exception){
+                // reconnect
+                if ( $statement->errorCode() == 2006){
+                    $this->reconnect();
+                    return $this->cursor($query , $bindings , $useReadPdo);
+                }
+                throw new $exception;
+            }
 
             return $statement;
         });
@@ -455,7 +472,17 @@ class Connection implements ConnectionInterface
 
             $this->recordsHaveBeenModified();
 
-            return $statement->execute();
+            try{
+                $res = $statement->execute();
+            }catch (\PDOException $exception){
+                // reconnect
+                if ( $statement->errorCode() == 2006){
+                    $this->reconnect();
+                    return $this->statement($query , $bindings);
+                }
+                throw new $exception;
+            }
+            return $res;
         });
     }
 
@@ -480,7 +507,16 @@ class Connection implements ConnectionInterface
 
             $this->bindValues($statement, $this->prepareBindings($bindings));
 
-            $statement->execute();
+            try{
+                $statement->execute();
+            }catch (\PDOException $exception){
+                // reconnect
+                if ( $statement->errorCode() == 2006){
+                    $this->reconnect();
+                    return $this->affectingStatement($query, $bindings);
+                }
+                throw new $exception;
+            }
 
             $this->recordsHaveBeenModified(
                 ($count = $statement->rowCount()) > 0
@@ -504,7 +540,7 @@ class Connection implements ConnectionInterface
             }
 
             $this->recordsHaveBeenModified(
-                $change = $this->getPdo()->exec($query) !== false
+                $change = ($this->getPdo()->exec($query) === false ? false : true)
             );
 
             return $change;
@@ -552,7 +588,7 @@ class Connection implements ConnectionInterface
 
         // Now we'll execute this callback and capture the result. Once it has been
         // executed we will restore the value of query logging and give back the
-        // value of the callback so the original callers can have the results.
+        // value of hte callback so the original callers can have the results.
         $result = $callback();
 
         $this->loggingQueries = $loggingQueries;
@@ -929,7 +965,7 @@ class Connection implements ConnectionInterface
             return $this->getPdo();
         }
 
-        if ($this->recordsModified && $this->getConfig('sticky')) {
+        if ($this->getConfig('sticky') && $this->recordsModified) {
             return $this->getPdo();
         }
 
@@ -958,7 +994,7 @@ class Connection implements ConnectionInterface
     /**
      * Set the PDO connection used for reading.
      *
-     * @param  \PDO|\Closure|null  $pdo
+     * @param  \PDO||\Closure|null  $pdo
      * @return $this
      */
     public function setReadPdo($pdo)
@@ -1094,16 +1130,6 @@ class Connection implements ConnectionInterface
     public function setEventDispatcher(Dispatcher $events)
     {
         $this->events = $events;
-    }
-
-    /**
-     * Unset the event dispatcher for this connection.
-     *
-     * @return void
-     */
-    public function unsetEventDispatcher()
-    {
-        $this->events = null;
     }
 
     /**
